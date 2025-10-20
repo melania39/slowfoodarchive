@@ -1,0 +1,316 @@
+---
+import Airtable from 'airtable';
+import { ViewTransitions, slide } from 'astro:transitions';
+
+const base = new Airtable({
+  apiKey: import.meta.env.PUBLIC_AIRTABLE_API_KEY
+}).base(import.meta.env.PUBLIC_AIRTABLE_BASE_ID);
+
+let items = [];
+try {
+  const records = await base(import.meta.env.PUBLIC_AIRTABLE_TABLE_NAME)
+    .select({
+      maxRecords: 100,
+      sort: [{field: "Name", direction: "asc"}]
+    })
+    .all();
+
+  items = records.map(record => ({
+    id: record.id,
+    name: record.fields.Name,
+    description: record.fields.Description,
+    category: record.fields.Category,
+    region: record.fields.Region,
+    seasonality: record.fields.Seasonality,
+    producers: record.fields.Producers,
+    // L'immagine non è più necessaria per la visualizzazione del calendario, ma la manteniamo per il modale.
+    image: record.fields.Edited?.[0]?.url,
+  }));
+} catch (error) {
+  console.error('Errore caricamento dati:', error);
+}
+
+const titolo = "Calendario Stagionalità";
+
+const monthNamesEN = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December"
+];
+const monthHeadersIT = [
+  "GEN", "FEB", "MAR", "APR", "MAG", "GIU",
+  "LUG", "AGO", "SET", "OTT", "NOV", "DIC"
+];
+---
+
+<html lang="it">
+<head>
+    <meta charset="utf-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width" />
+    <title>{titolo}</title>
+    <ViewTransitions />
+
+    <style>
+        body {
+          background-color: #000000;
+          color: #fff;
+          font-family: 'Helvetica', Arial, sans-serif;
+          margin: 0;
+          overflow-y: auto;
+        }
+  
+        .calendar-container {
+          padding: 2rem;
+          /* max-width: 1200px; */ /* Removed for full width */
+          margin: 2rem 40px;
+          background-color: rgba(0, 0, 0, 0.2);
+          border-radius: 8px;
+          position: relative;
+        }
+  
+        h1 {
+          font-size: 2.5rem;
+          font-weight: 900;
+          text-align: center;
+          margin-bottom: 2rem;
+        }
+  
+        .table-wrapper {
+          overflow-x: auto;
+        }
+  
+        .season-calendar {
+          width: 100%;
+          border-collapse: collapse;
+          min-width: 800px;
+          table-layout: fixed;
+        }
+  
+        .season-calendar th,
+        .season-calendar td {
+          border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+          text-align: left;
+          height: 35px;
+          vertical-align: middle;
+          /* --- MODIFICA QUI: Aggiunta linea verticale destra --- */
+          border-right: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        /* Rimuove bordo destro dall'ultima colonna */
+        .season-calendar th:last-child,
+        .season-calendar td:last-child {
+          border-right: none;
+        }
+  
+  
+        .season-calendar th {
+          font-size: 0.8rem;
+          font-weight: 700;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.7);
+          /* --- MODIFICA QUI: Allineamento a sinistra --- */
+          text-align: left;
+          padding: 0.8rem 0.5rem; /* Aggiunto padding laterale */
+          width: 6%;
+        }
+  
+        .season-calendar th:first-child,
+        .season-calendar td:first-child {
+           width: 28%;
+           padding: 0.5rem 0.8rem;
+           text-align: left;
+           /* Assicura che la prima colonna non abbia bordo destro (se lo stile td generale lo aggiungesse) */
+           /* border-right: 1px solid rgba(255, 255, 255, 0.1); */ /* Già gestito dalla regola generale */
+        }
+  
+  
+        .product-name {
+          font-weight: 700;
+          color: #fff;
+          cursor: pointer;
+          transition: background-color 0.2s, color 0.2s;
+          border-radius: 4px;
+          padding: 0.4rem 0.6rem;
+          margin: -0.4rem -0.6rem;
+          display: inline-block;
+          text-transform: uppercase;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 100%;
+          vertical-align: middle;
+        }
+        .product-name:hover {
+          background-color: rgba(255, 255, 255, 0.1);
+          color: #eee;
+        }
+  
+        .season-calendar td:first-child {
+          position: sticky;
+          left: 0;
+          background-color: #000000;
+          z-index: 1;
+        }
+  
+        /* Celle dei mesi */
+        .season-calendar td {
+          /* text-align: center; */ /* Rimosso, eredita left da regola generale */
+          vertical-align: middle;
+          padding: 0; /* Nessun padding */
+          position: relative;
+          overflow: hidden;
+        }
+  
+        /* Barra di stagionalità */
+        .season-bar {
+          height: 12px;
+          background-color: #ffffff;
+          width: 100%;
+          position: absolute;
+          top: 50%;
+          left: 0;
+          transform: translateY(-50%);
+        }
+  
+  
+        .back-link {
+          display: inline-block;
+          margin-bottom: 1rem;
+          color: #fff;
+          text-decoration: none;
+          font-weight: 700;
+          font-size: 1rem;
+          transition: opacity 0.2s;
+        }
+        .back-link:hover {
+          opacity: 0.7;
+        }
+  
+        /* Stili modal (invariati) */
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.7); z-index: 100; opacity: 0; pointer-events: none; transition: opacity 0.3s ease; }
+        .modal-overlay.visible { opacity: 1; pointer-events: auto; }
+        .details-modal { display: none; position: fixed; top: 50%; left: 50%; width: 60%; max-width: 600px; max-height: 80vh; overflow-y: auto; transform: translate(-50%, -50%) scale(0.95); background-color: rgba(15, 15, 15, 0.95); padding: 2rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); z-index: 101; color: #eee; text-align: left; opacity: 0; visibility: hidden; transition: opacity 0.3s ease, visibility 0.3s ease, transform 0.3s ease; }
+        .details-modal.visible { display: block; opacity: 1; visibility: visible; transform: translate(-50%, -50%) scale(1); }
+        .details-modal h3 { margin-top: 0; font-size: 1.8rem; font-weight: 700; color: #fff; margin-bottom: 1rem;}
+        .details-modal p, .details-modal span { font-size: 1rem; line-height: 1.6; margin-bottom: 0.8rem;}
+        .category { display: inline-block; padding: 0.3em 0.8em; background-color: #555; border-radius: 4px; font-size: 0.9rem; margin-bottom: 1.2rem; text-transform: uppercase;}
+  
+      </style>
+</head>
+<body>
+
+    <div class="calendar-container">
+      <a
+        href="/"
+        class="back-link"
+        transition:animate={slide({ direction: 'right', duration: '0.4s' })}
+      >
+        &larr; Torna alla Home
+      </a>
+      <h1>{titolo}</h1>
+
+      <div class="table-wrapper">
+        <table class="season-calendar">
+          <thead>
+            <tr>
+              <th>Prodotto</th>
+              {monthHeadersIT.map(month => (
+                <th>{month}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(item => (
+              <tr>
+                <td>
+                  <span class="product-name" data-id={item.id}>
+                    {item.name}
+                  </span>
+                </td>
+
+                {monthNamesEN.map((month, index) => (
+                  <td>
+                    {/* Mostra la barra di stagionalità se il prodotto è di stagione in questo mese */}
+                    {item.seasonality && item.seasonality.includes(month) ? (
+                      <div class="season-bar" title={`Di stagione in ${month}`}></div>
+                    ) : (
+                      ''
+                    )}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div id="modal-overlay" class="modal-overlay"></div>
+    <div id="details-modal" class="details-modal">
+        <h3 id="modal-name"></h3>
+        <span id="modal-category" class="category"></span>
+        <p id="modal-description"></p>
+        <p><strong>Seasonality:</strong> <span id="modal-seasonality"></span></p>
+        <p><strong>Region:</strong> <span id="modal-region"></span></p>
+        <p><strong>Producers:</strong> <span id="modal-producers"></span></p>
+    </div>
+
+</body>
+</html>
+
+<script define:vars={{ items }}>
+  document.addEventListener('DOMContentLoaded', () => {
+
+    const modal = document.getElementById('details-modal');
+    const overlay = document.getElementById('modal-overlay');
+    const clickableNames = document.querySelectorAll('.product-name');
+
+    const modalFields = {
+      name: document.getElementById('modal-name'),
+      category: document.getElementById('modal-category'),
+      description: document.getElementById('modal-description'),
+      seasonality: document.getElementById('modal-seasonality'),
+      region: document.getElementById('modal-region'),
+      producers: document.getElementById('modal-producers')
+    };
+
+    clickableNames.forEach(nameSpan => {
+      nameSpan.addEventListener('click', () => {
+        const itemId = nameSpan.getAttribute('data-id');
+        const itemData = items.find(i => i.id === itemId);
+
+        if (itemData) {
+          modalFields.name.textContent = itemData.name || '';
+          modalFields.description.textContent = itemData.description || '';
+          modalFields.seasonality.textContent = itemData.seasonality || 'N/A';
+          modalFields.region.textContent = itemData.region || 'N/A';
+          modalFields.producers.textContent = itemData.producers || 'N/A';
+
+          if (itemData.category) {
+            modalFields.category.textContent = itemData.category;
+            modalFields.category.style.display = 'inline-block';
+          } else {
+            modalFields.category.style.display = 'none';
+          }
+
+          modal.classList.add('visible');
+          overlay.classList.add('visible');
+        } else {
+            console.warn(`Dati non trovati per l'ID: ${itemId}`);
+        }
+      });
+    });
+
+    function closeModal() {
+      modal.classList.remove('visible');
+      overlay.classList.remove('visible');
+    }
+
+    overlay.addEventListener('click', closeModal);
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closeModal();
+        }
+    });
+  });
+</script>
